@@ -1,12 +1,10 @@
 const express = require('express');
 const axios = require('axios');
 const bodyParser = require('body-parser');
-
 const app = express();
 const port = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
-
 const groups = new Map();
 
 app.use(bodyParser.json());
@@ -14,14 +12,14 @@ app.use(bodyParser.json());
 app.post('/webhook', (req, res) => {
     const update = req.body;
     console.log('Received update:', JSON.stringify(update));
-
+    
     if (update.message && (update.message.chat.type === 'group' || update.message.chat.type === 'supergroup')) {
         const chatId = update.message.chat.id;
-
+        
         if (update.message.photo) {
             const caption = update.message.caption || '';
             console.log(`Photo received in group ${chatId} with caption: ${caption}`);
-
+            
             const orderNumber = extractOrderNumber(caption);
             if (orderNumber) {
                 console.log(`Extracted order number: ${orderNumber}`);
@@ -30,14 +28,14 @@ app.post('/webhook', (req, res) => {
                 sendConfirmation(chatId, 'Photo received!');
             }
         }
-
+        
         if (update.message.text === '/start') {
             groups.set(chatId, { name: update.message.chat.title });
             console.log(`Group ${chatId} registered: ${update.message.chat.title}`);
             sendConfirmation(chatId, 'Group registered! Send photos with order numbers in captions.');
         }
     }
-
+    
     res.sendStatus(200);
 });
 
