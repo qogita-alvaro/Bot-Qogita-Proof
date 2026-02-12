@@ -1,9 +1,13 @@
 const express = require('express');
 const axios = require('axios');
+const FormData = require('form-data');
 
 const app = express();
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 
 app.use(express.json());
 
@@ -39,7 +43,7 @@ async function handleMessage(message) {
   
   if (message.text === '/start') {
     sellerGroups.set(chatId, { userId, userName, registeredAt: new Date() });
-    await sendMessage(chatId, `✅ Group registered for ${userName}! Send photos with order numbers now.`);
+    await sendMessage(chatId, `✅ Group registered for ${userName}!\n\nNow send photos with order numbers in the caption.\nExample: "ORDER-12345"`);
     return;
   }
   
@@ -50,13 +54,81 @@ async function handleMessage(message) {
       return;
     }
     
-    const photo = message.photo[message.photo.length - 1];
-    const fileData = await axios.get(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${photo.file_id}`);
-    
-    console.log(`Photo received from ${userName}`);
-    
-    await sendMessage(chatId, `✅ Photo uploaded for ${userName}!`, message.message_id);
+    try {
+      const photo = message.photo[message.photo.length - 1];
+      const caption = message.caption || '';
+      const orderNumber = extractOrderNumber(caption);
+      
+      // Download photo from Telegram
+      const fileData = await axios.get(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${photo.file_id}`);
+      const filePath = fileData.data.result.file_path;
+      const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+      
+      const imageResponse = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+      const imageBuffer = Buffer.from(imageResponse.data);
+      
+      // Upload to Cloudinary
+      const cloudinaryUrl = await uploadToCloudinary(imageBuffer, userName, orderNumber);
+      
+      console.log(`Photo uploaded - Seller: ${userName}, Order: ${orderNumber || 'unknown'}, URL: ${cloudinaryUrl}`);
+      
+      if (orderNumber) {
+        await sendMessage(chatId, `✅ Photo saved!\n\nSeller: ${userName}\nOrder: ${orderNumber}\n\n🔗 ${cloudinaryUrl}`, message.message_id);
+      } else {
+        await sendMessage(chatId, `✅ Photo saved for ${userName}!\n\n💡 Tip: Include order number in caption\nExample: "ORDER-12345"\n\n🔗 ${cloudinaryUrl}`, message.message_id);
+      }
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      await sendMessage(chatId, `❌ Error saving photo. Please try again.`, message.message_id);
+    }
   }
+}
+
+async function uploadToCloudinary(imageBuffer, sellerName, orderNumber) {
+  const formData = new FormData();
+  formData.append('file', imageBuffer, { filename: 'photo.jpg' });
+  formData.append('upload_preset', 'ml_default');
+  
+  // Organize in folders: Seller/Order
+  const folder = orderNumber 
+    ? `ProofPal/${sellerName}/ORDER-${orderNumber}`
+    : `ProofPal/${sellerName}/misc`;
+  formData.append('folder', folder);
+  
+  const timestamp = Math.round(Date.now() / 1000);
+  formData.append('timestamp', timestamp);
+  formData.append('api_key', CLOUDINARY_API_KEY);
+  
+  // Generate signature
+  const crypto = require('crypto');
+  const signature = crypto
+    .createHash('sha1')
+    .update(`folder=${folder}&timestamp=${timestamp}&upload_preset=ml_default${CLOUDINARY_API_SECRET}`)
+    .digest('hex');
+  formData.append('signature', signature);
+  
+  const response = await axios.post(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+    formData,
+    { headers: formData.getHeaders() }
+  );
+  
+  return response.data.secure_url;
+}
+
+function extractOrderNumber(caption) {
+  const patterns = [
+    /ORDER[:\s-]*(\d+)/i,
+    /PEDIDO[:\s-]*(\d+)/i,
+    /#(\d+)/,
+    /^(\d{4,})/
+  ];
+  
+  for (const pattern of patterns) {
+    const match = caption.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
 }
 
 async function sendMessage(chatId, text, replyTo = null) {
