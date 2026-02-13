@@ -38,23 +38,18 @@ async function handleMessage(message) {
   const isGroup = message.chat.type === 'group' || message.chat.type === 'supergroup';
   
   if (!isGroup) {
-    await sendMessage(chatId, "Hi! Please add me to a group and send /start there.");
+    await sendMessage(chatId, "Hi! Please add me to a group.");
     return;
   }
   
-  if (message.text === '/start') {
+  // Auto-register group on first interaction
+  if (!sellerGroups.has(chatId)) {
     sellerGroups.set(chatId, { userId, userName, registeredAt: new Date() });
-    await sendMessage(chatId, `✅ Group registered for ${userName}!\n\nNow send photos with order numbers in the caption.\nExample: "ORDER-12345"`);
+    await sendMessage(chatId, `✅ Group ready! Send photos with order numbers.\nExample: "ORDER-12345"`);
     return;
   }
   
   if (message.photo) {
-    const groupInfo = sellerGroups.get(chatId);
-    if (!groupInfo) {
-      await sendMessage(chatId, "⚠️ Send /start first to register this group.");
-      return;
-    }
-    
     try {
       const photo = message.photo[message.photo.length - 1];
       const caption = message.caption || '';
