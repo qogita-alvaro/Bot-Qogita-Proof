@@ -18,6 +18,7 @@ app.get('/', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
+  console.log('Webhook received:', JSON.stringify(req.body));
   try {
     const update = req.body;
     if (update.message) {
@@ -59,15 +60,19 @@ async function handleMessage(message) {
       const caption = message.caption || '';
       const orderNumber = extractOrderNumber(caption);
       
+      console.log(`Processing photo from ${userName}, order: ${orderNumber || 'none'}`);
+      
       // Download photo from Telegram
       const fileData = await axios.get(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${photo.file_id}`);
       const filePath = fileData.data.result.file_path;
       const fileUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
       
+      console.log('Downloading photo from Telegram...');
       const imageResponse = await axios.get(fileUrl, { responseType: 'arraybuffer' });
       const imageBuffer = Buffer.from(imageResponse.data);
       
       // Upload to Cloudinary
+      console.log('Uploading to Cloudinary...');
       const cloudinaryUrl = await uploadToCloudinary(imageBuffer, userName, orderNumber);
       
       console.log(`Photo uploaded - Seller: ${userName}, Order: ${orderNumber || 'unknown'}, URL: ${cloudinaryUrl}`);
